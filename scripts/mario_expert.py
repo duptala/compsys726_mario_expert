@@ -53,12 +53,15 @@ class InferenceEngine:
         self.just_stepped_back = False  # Initialize just_stepped_back to track if Mario just stepped back
 
     def evaluate(self, facts):
-        mario_positions = np.argwhere(facts['game_area'] == 1)
+        mario_positions = facts.get('mario_positions', None)  # Use mario_positions from facts
+        
+        if mario_positions is None or len(mario_positions) == 0:
+            print("Mario is likely dead or the game has ended.")
+            return WindowEvent.PRESS_BUTTON_START 
         
         # Calculate Mario's height based on the minimum row index (lower row number = higher on screen)
         mario_height = mario_positions[:, 0].min()
-        
-        
+
         # Rule 1: If there's a Goomba falling from above, slow down (or stop)
         if facts['falling_goombas']:
             print("Slowing down due to falling Goombas.")
@@ -100,6 +103,7 @@ class InferenceEngine:
         print("Default action: moving right.")
         self.just_stepped_back = False  # Reset stepping back tracker
         return WindowEvent.PRESS_ARROW_RIGHT
+
 
 
 class MarioController(MarioEnvironment):
@@ -190,7 +194,6 @@ class MarioExpert:
     def gather_facts(self):
         state = self.environment.game_state()
         game_area = np.array(self.environment.game_area())
-        mario_pose = self.environment.get_mario_pose()
         x_position = self.environment.get_x_position()
 
         # Find Mario's position (looking for the [1,1] block)
@@ -236,7 +239,7 @@ class MarioExpert:
 
         print(f"Is Barrier Ahead: {is_barrier_ahead}")
         
-         # Check if there's a gap in front of Mario
+        # Check if there's a gap in front of Mario
         ground_row = game_area.shape[0] - 1  # The last row is the ground
         gap_ahead = False
         distance_to_gap = None
@@ -248,7 +251,7 @@ class MarioExpert:
                 break
 
         print(f"Is Gap Ahead: {gap_ahead}, Distance to Gap: {distance_to_gap}")
-         
+        
         # Check for power-up directly above Mario
         is_powerup_nearby = np.any(game_area[mario_min_row - 1:mario_min_row, mario_min_col:mario_max_col + 2] == 13)
         is_powerup_above = (378 <= x_position <= 385) and np.any(game_area[mario_min_row - 1:mario_min_row, mario_min_col:mario_max_col + 2] == 13)
@@ -263,23 +266,24 @@ class MarioExpert:
 
         # Collect facts about the current situation
         facts = {
-        'state': state,
-        'game_area': game_area,
-        'mario_pose': mario_pose,
-        'x_position': x_position,
-        'is_enemy_ahead': is_enemy_ahead,
-        'distance_to_enemy': distance_to_enemy,
-        'is_barrier_ahead': is_barrier_ahead,
-        'is_powerup_nearby': is_powerup_nearby,
-        'is_powerup_above': is_powerup_above,
-        'next_tile_clear': next_tile_clear,
-        'game_over': False,  # Game is still running
-        'falling_goombas': falling_goombas,
-        'goombas_same_level_count': len(goombas_ahead),
-        'gap_ahead': gap_ahead,
-        'distance_to_gap': distance_to_gap,  # New fact for distance to gap
+            'state': state,
+            'game_area': game_area,
+            'mario_positions': mario_positions,  # Store Mario's positions in the facts
+            'x_position': x_position,
+            'is_enemy_ahead': is_enemy_ahead,
+            'distance_to_enemy': distance_to_enemy,
+            'is_barrier_ahead': is_barrier_ahead,
+            'is_powerup_nearby': is_powerup_nearby,
+            'is_powerup_above': is_powerup_above,
+            'next_tile_clear': next_tile_clear,
+            'game_over': False,  # Game is still running
+            'falling_goombas': falling_goombas,
+            'goombas_same_level_count': len(goombas_ahead),
+            'gap_ahead': gap_ahead,
+            'distance_to_gap': distance_to_gap,  # New fact for distance to gap
         }
         return facts
+
 
     def choose_action(self):
         print(self.environment.get_x_position())
