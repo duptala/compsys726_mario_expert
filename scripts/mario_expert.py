@@ -53,6 +53,12 @@ class InferenceEngine:
         self.just_stepped_back = False  # Initialize just_stepped_back to track if Mario just stepped back
 
     def evaluate(self, facts):
+        mario_positions = np.argwhere(facts['game_area'] == 1)
+        
+        # Calculate Mario's height based on the minimum row index (lower row number = higher on screen)
+        mario_height = mario_positions[:, 0].min()
+        
+        
         # Rule 1: If there's a Goomba falling from above, slow down (or stop)
         if facts['falling_goombas']:
             print("Slowing down due to falling Goombas.")
@@ -70,8 +76,13 @@ class InferenceEngine:
 
         # Rule 4: If there's a gap ahead, decide whether to step back or jump
         if facts['gap_ahead'] and facts['distance_to_gap'] is not None:
-            if facts['distance_to_gap'] == 4:
-                print("Jumping over gap.")
+            if mario_height <= 5 and facts['distance_to_gap'] == 4:
+                # Mario is high up and should jump from a greater distance
+                print("Jumping over gap from a higher platform.")
+                return WindowEvent.PRESS_BUTTON_A  # JUMP action to clear the gap
+            elif mario_height > 5 and facts['distance_to_gap'] <= 2:
+                # Mario is at ground level (or close to it) and should jump when closer
+                print("Jumping over gap at ground level.")
                 return WindowEvent.PRESS_BUTTON_A  # JUMP action to clear the gap
 
         # Rule 5: If there's a power-up above, jump and then wait
