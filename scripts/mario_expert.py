@@ -20,7 +20,10 @@ class KnowledgeBase:
             'enemy_ahead': self.is_enemy_ahead,
             'barrier_ahead': self.is_barrier_ahead,
             'powerup_nearby': self.is_powerup_nearby,
+            'powerup_above': self.is_powerup_above,
             'path_clear': self.is_path_clear,
+            'multiple_goombas_ahead': self.are_multiple_goombas_ahead,
+            'falling_goombas': self.are_goombas_falling,
         }
 
     def is_enemy_ahead(self, facts):
@@ -32,31 +35,57 @@ class KnowledgeBase:
     def is_powerup_nearby(self, facts):
         return facts['is_powerup_nearby']
 
+    def is_powerup_above(self, facts):
+        return facts['is_powerup_above']
+
     def is_path_clear(self, facts):
         return facts['next_tile_clear'] == 0
+
+    def are_multiple_goombas_ahead(self, facts):
+        return facts['is_enemy_ahead'] and facts['distance_to_enemy'] is not None and facts['distance_to_enemy'] < 3
+
+    def are_goombas_falling(self, facts):
+        return facts['falling_goombas'] and facts['goombas_above_below_count'] > 0
 
 class InferenceEngine:
     def __init__(self, knowledge_base):
         self.knowledge_base = knowledge_base
+        self.just_stepped_back = False  # Initialize just_stepped_back to track if Mario just stepped back
 
     def evaluate(self, facts):
-        # Rule 1: If an enemy is ahead, jump
-        if self.knowledge_base.rules['enemy_ahead'](facts):
+        # Rule 1: If there's a Goomba falling from above, slow down (or stop)
+        if facts['falling_goombas']:
+            return WindowEvent.PRESS_ARROW_LEFT  # Slow down or stop
+
+        # Rule 2: If there's a Goomba on the same level and close, jump over it
+        if facts['is_enemy_ahead'] and facts['distance_to_enemy'] is not None and facts['distance_to_enemy'] <= 5:
             return WindowEvent.PRESS_BUTTON_A  # JUMP action
 
-        # Rule 2: If a barrier is ahead, jump
-        if self.knowledge_base.rules['barrier_ahead'](facts):
+        # Rule 3: If there's a barrier directly in front, jump to clear it
+        if facts['is_barrier_ahead'] and not facts['next_tile_clear']:
             return WindowEvent.PRESS_BUTTON_A  # JUMP action
 
-        # Rule 3: If a power-up is nearby and the path is clear, move towards it
-        if self.knowledge_base.rules['powerup_nearby'](facts) and self.knowledge_base.rules['path_clear'](facts):
-            return WindowEvent.PRESS_ARROW_UP  # MOVE RIGHT
+        # Rule 4: If there's a gap ahead, decide whether to step back or jump
+        if facts['gap_ahead']:
+            if facts['distance_to_gap'] is not None:
+                if facts['distance_to_gap'] <= 1:
+                    self.just_stepped_back = True
+                    return WindowEvent.PRESS_ARROW_LEFT  # Move left first
+                elif facts['distance_to_gap'] <= 3:
+                    self.just_stepped_back = False
+                    return WindowEvent.PRESS_BUTTON_A  # JUMP action to clear the gap
 
-        # Rule 4: If the path is clear, keep moving right
-        if self.knowledge_base.rules['path_clear'](facts):
+        # Rule 5: If there's a power-up above, jump and then wait
+        if self.knowledge_base.rules['powerup_above'](facts):
+            return WindowEvent.PRESS_BUTTON_A  # JUMP action to get the power-up
+
+        # Rule 6: If the path is clear, keep moving right
+        if facts['next_tile_clear']:
+            self.just_stepped_back = False  # Reset stepping back tracker
             return WindowEvent.PRESS_ARROW_RIGHT  # MOVE RIGHT
 
         # Default action: Move right if unsure
+        self.just_stepped_back = False  # Reset stepping back tracker
         return WindowEvent.PRESS_ARROW_RIGHT
 
 
@@ -154,9 +183,11 @@ class MarioExpert:
         # Find Mario's position (looking for the [1,1] block)
         mario_positions = np.argwhere(game_area == 1)
 
+        print(f"Mario Positions: {mario_positions}")
+
         # Check if Mario's position is found
         if mario_positions.size == 0:
-            # Mario is likely dead or the game has ended, return a 'game over' state
+            print("Mario is likely dead or the game has ended.")
             facts = {
                 'state': state,
                 'game_over': True,  # Indicate that the game is over
@@ -169,26 +200,71 @@ class MarioExpert:
         mario_min_col = mario_positions[:, 1].min()
         mario_max_col = mario_positions[:, 1].max()
 
-        # Check the tiles in front of Mario (same rows, next columns)
-        next_tiles = game_area[mario_min_row:mario_max_row + 1, mario_max_col + 1:mario_max_col + 2]
+        print(f"Mario Position (min row/col): ({mario_min_row}, {mario_min_col})")
 
-        # Check for enemies, barriers, and power-ups
-        is_enemy_ahead = np.any(next_tiles == 15)
-        is_barrier_ahead = np.any(next_tiles == 14) or np.any(next_tiles == 10)
-        is_powerup_on_top = np.any(game_area[mario_min_row - 1:mario_max_row, mario_min_col:mario_max_col + 2] == 13)
-        next_tile_clear = np.all(next_tiles == 0)
+        # Detect Goombas directly ahead of Mario
+        goomba_positions = np.argwhere(game_area == 15)
+        print(f"Detected Goomba Positions: {goomba_positions}")
+
+        goombas_ahead = goomba_positions[(goomba_positions[:, 0] >= mario_min_row) & 
+                                        (goomba_positions[:, 0] <= mario_max_row) & 
+                                        (goomba_positions[:, 1] > mario_max_col)]
+        is_enemy_ahead = len(goombas_ahead) > 0
+        distance_to_enemy = np.min(goombas_ahead[:, 1] - mario_max_col) if is_enemy_ahead else None
+
+        # Determine if any Goombas are falling from above
+        goombas_above = goomba_positions[goomba_positions[:, 0] < mario_min_row]
+        falling_goombas = len(goombas_above) > 0
+
+        # Check for barriers directly in front of Mario (same level)
+        is_barrier_ahead = np.any(game_area[mario_min_row:mario_max_row + 2, mario_max_col + 1:mario_max_col + 2] == 14) or \
+                        np.any(game_area[mario_min_row:mario_max_row + 2, mario_max_col + 1:mario_max_col + 2] == 10) or \
+                        np.any(game_area[mario_min_row:mario_max_row + 2, mario_max_col + 1:mario_max_col + 2] == 12)
+
+        print(f"Is Barrier Ahead: {is_barrier_ahead}")
+        
+         # Check if there's a gap in front of Mario
+        ground_row = game_area.shape[0] - 1  # The last row is the ground
+        gap_ahead = False
+        distance_to_gap = None
+
+        for col in range(mario_max_col + 1, game_area.shape[1]):
+            if game_area[ground_row, col] == 0 and np.all(game_area[mario_max_row + 1:, col] == 0):
+                gap_ahead = True
+                distance_to_gap = col - mario_max_col
+                break
+
+        print(f"Is Gap Ahead: {gap_ahead}, Distance to Gap: {distance_to_gap}")
+         
+        # Check for power-up directly above Mario
+        is_powerup_nearby = np.any(game_area[mario_min_row - 1:mario_min_row, mario_min_col:mario_max_col + 2] == 13)
+        is_powerup_above = (378 <= x_position <= 385) and np.any(game_area[mario_min_row - 1:mario_min_row, mario_min_col:mario_max_col + 2] == 13)
+
+        print(f"Is Powerup Nearby: {is_powerup_nearby}, Is Powerup Above: {is_powerup_above}")
+        
+        # Check if the immediate path ahead is clear
+        next_tile_clear = np.all(game_area[mario_min_row:mario_max_row + 1, mario_max_col + 1:mario_max_col + 2] == 0)
+
+        print(f"Is Next Tile Clear: {next_tile_clear}")
+        print(game_area)
 
         # Collect facts about the current situation
         facts = {
-            'state': state,
-            'game_area': game_area,
-            'mario_pose': mario_pose,
-            'x_position': x_position,
-            'is_enemy_ahead': is_enemy_ahead,
-            'is_barrier_ahead': is_barrier_ahead,
-            'is_powerup_nearby': is_powerup_nearby,
-            'next_tile_clear': next_tile_clear,
-            'game_over': False,  # Game is still running
+        'state': state,
+        'game_area': game_area,
+        'mario_pose': mario_pose,
+        'x_position': x_position,
+        'is_enemy_ahead': is_enemy_ahead,
+        'distance_to_enemy': distance_to_enemy,
+        'is_barrier_ahead': is_barrier_ahead,
+        'is_powerup_nearby': is_powerup_nearby,
+        'is_powerup_above': is_powerup_above,
+        'next_tile_clear': next_tile_clear,
+        'game_over': False,  # Game is still running
+        'falling_goombas': falling_goombas,
+        'goombas_same_level_count': len(goombas_ahead),
+        'gap_ahead': gap_ahead,
+        'distance_to_gap': distance_to_gap,  # New fact for distance to gap
         }
         return facts
 
