@@ -55,36 +55,38 @@ class InferenceEngine:
     def evaluate(self, facts):
         # Rule 1: If there's a Goomba falling from above, slow down (or stop)
         if facts['falling_goombas']:
+            print("Slowing down due to falling Goombas.")
             return WindowEvent.PRESS_ARROW_LEFT  # Slow down or stop
 
         # Rule 2: If there's a Goomba on the same level and close, jump over it
         if facts['is_enemy_ahead'] and facts['distance_to_enemy'] is not None and facts['distance_to_enemy'] <= 5:
+            print("Jumping over Goomba.")
             return WindowEvent.PRESS_BUTTON_A  # JUMP action
 
         # Rule 3: If there's a barrier directly in front, jump to clear it
         if facts['is_barrier_ahead'] and not facts['next_tile_clear']:
+            print("Jumping over barrier.")
             return WindowEvent.PRESS_BUTTON_A  # JUMP action
 
         # Rule 4: If there's a gap ahead, decide whether to step back or jump
-        if facts['gap_ahead']:
-            if facts['distance_to_gap'] is not None:
-                if facts['distance_to_gap'] <= 1:
-                    self.just_stepped_back = True
-                    return WindowEvent.PRESS_ARROW_LEFT  # Move left first
-                elif facts['distance_to_gap'] <= 3:
-                    self.just_stepped_back = False
-                    return WindowEvent.PRESS_BUTTON_A  # JUMP action to clear the gap
+        if facts['gap_ahead'] and facts['distance_to_gap'] is not None:
+            if facts['distance_to_gap'] == 4:
+                print("Jumping over gap.")
+                return WindowEvent.PRESS_BUTTON_A  # JUMP action to clear the gap
 
         # Rule 5: If there's a power-up above, jump and then wait
         if self.knowledge_base.rules['powerup_above'](facts):
+            print("Jumping to get power-up.")
             return WindowEvent.PRESS_BUTTON_A  # JUMP action to get the power-up
 
         # Rule 6: If the path is clear, keep moving right
         if facts['next_tile_clear']:
+            print("Path is clear, moving right.")
             self.just_stepped_back = False  # Reset stepping back tracker
             return WindowEvent.PRESS_ARROW_RIGHT  # MOVE RIGHT
 
         # Default action: Move right if unsure
+        print("Default action: moving right.")
         self.just_stepped_back = False  # Reset stepping back tracker
         return WindowEvent.PRESS_ARROW_RIGHT
 
@@ -104,7 +106,7 @@ class MarioController(MarioEnvironment):
     def __init__(
         self,
         act_freq: int = 10,
-        emulation_speed: int = 1,
+        emulation_speed: int = 0,
         headless: bool = False,
     ) -> None:
         super().__init__(
