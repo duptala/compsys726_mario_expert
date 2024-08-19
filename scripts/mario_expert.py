@@ -9,10 +9,55 @@ Original Mario Manual: https://www.thegameisafootarcade.com/wp-content/uploads/2
 import json
 import logging
 import random
-
 import cv2
 from mario_environment import MarioEnvironment
 from pyboy.utils import WindowEvent
+import numpy as np
+
+class KnowledgeBase:
+    def __init__(self):
+        self.rules = {
+            'enemy_ahead': self.is_enemy_ahead,
+            'barrier_ahead': self.is_barrier_ahead,
+            'powerup_nearby': self.is_powerup_nearby,
+            'path_clear': self.is_path_clear,
+        }
+
+    def is_enemy_ahead(self, facts):
+        return facts['is_enemy_ahead']
+     
+    def is_barrier_ahead(self, facts):
+        return facts['is_barrier_ahead']
+
+    def is_powerup_nearby(self, facts):
+        return facts['is_powerup_nearby']
+
+    def is_path_clear(self, facts):
+        return facts['next_tile_clear'] == 0
+
+class InferenceEngine:
+    def __init__(self, knowledge_base):
+        self.knowledge_base = knowledge_base
+
+    def evaluate(self, facts):
+        # Rule 1: If an enemy is ahead, jump
+        if self.knowledge_base.rules['enemy_ahead'](facts):
+            return WindowEvent.PRESS_BUTTON_A  # JUMP action
+
+        # Rule 2: If a barrier is ahead, jump
+        if self.knowledge_base.rules['barrier_ahead'](facts):
+            return WindowEvent.PRESS_BUTTON_A  # JUMP action
+
+        # Rule 3: If a power-up is nearby and the path is clear, move towards it
+        if self.knowledge_base.rules['powerup_nearby'](facts) and self.knowledge_base.rules['path_clear'](facts):
+            return WindowEvent.PRESS_ARROW_UP  # MOVE RIGHT
+
+        # Rule 4: If the path is clear, keep moving right
+        if self.knowledge_base.rules['path_clear'](facts):
+            return WindowEvent.PRESS_ARROW_RIGHT  # MOVE RIGHT
+
+        # Default action: Move right if unsure
+        return WindowEvent.PRESS_ARROW_RIGHT
 
 
 class MarioController(MarioEnvironment):
@@ -30,7 +75,7 @@ class MarioController(MarioEnvironment):
     def __init__(
         self,
         act_freq: int = 10,
-        emulation_speed: int = 0,
+        emulation_speed: int = 1,
         headless: bool = False,
     ) -> None:
         super().__init__(
@@ -72,14 +117,11 @@ class MarioController(MarioEnvironment):
         You can change the action type to whatever you want or need just remember the base control of the game is pushing buttons
         """
 
-        # Simply toggles the buttons being on or off for a duration of act_freq
-        self.pyboy.send_input(self.valid_actions[action])
-
+        action_index = self.valid_actions.index(action)
+        self.pyboy.send_input(action)
         for _ in range(self.act_freq):
             self.pyboy.tick()
-
-        self.pyboy.send_input(self.release_button[action])
-
+        self.pyboy.send_input(self.release_button[action_index])
 
 class MarioExpert:
     """
@@ -98,17 +140,63 @@ class MarioExpert:
         self.results_path = results_path
 
         self.environment = MarioController(headless=headless)
+        self.knowledge_base = KnowledgeBase()
+        self.inference_engine = InferenceEngine(self.knowledge_base)
 
         self.video = None
+    
+    def gather_facts(self):
+        state = self.environment.game_state()
+        game_area = np.array(self.environment.game_area())
+        mario_pose = self.environment.get_mario_pose()
+        x_position = self.environment.get_x_position()
+
+        # Find Mario's position (looking for the [1,1] block)
+        mario_positions = np.argwhere(game_area == 1)
+
+        # Check if Mario's position is found
+        if mario_positions.size == 0:
+            # Mario is likely dead or the game has ended, return a 'game over' state
+            facts = {
+                'state': state,
+                'game_over': True,  # Indicate that the game is over
+            }
+            return facts
+
+        # Mario usually occupies two rows, get the min and max row and column
+        mario_min_row = mario_positions[:, 0].min()
+        mario_max_row = mario_positions[:, 0].max()
+        mario_min_col = mario_positions[:, 1].min()
+        mario_max_col = mario_positions[:, 1].max()
+
+        # Check the tiles in front of Mario (same rows, next columns)
+        next_tiles = game_area[mario_min_row:mario_max_row + 1, mario_max_col + 1:mario_max_col + 2]
+
+        # Check for enemies, barriers, and power-ups
+        is_enemy_ahead = np.any(next_tiles == 15)
+        is_barrier_ahead = np.any(next_tiles == 14) or np.any(next_tiles == 10)
+        is_powerup_on_top = np.any(game_area[mario_min_row - 1:mario_max_row, mario_min_col:mario_max_col + 2] == 13)
+        next_tile_clear = np.all(next_tiles == 0)
+
+        # Collect facts about the current situation
+        facts = {
+            'state': state,
+            'game_area': game_area,
+            'mario_pose': mario_pose,
+            'x_position': x_position,
+            'is_enemy_ahead': is_enemy_ahead,
+            'is_barrier_ahead': is_barrier_ahead,
+            'is_powerup_nearby': is_powerup_nearby,
+            'next_tile_clear': next_tile_clear,
+            'game_over': False,  # Game is still running
+        }
+        return facts
 
     def choose_action(self):
-        state = self.environment.game_state()
-        frame = self.environment.grab_frame()
-        game_area = self.environment.game_area()
-
-        # Implement your code here to choose the best action
-        # time.sleep(0.1)
-        return random.randint(0, len(self.environment.valid_actions) - 1)
+        print(self.environment.get_x_position())
+        facts = self.gather_facts()
+        action = self.inference_engine.evaluate(facts)
+        return action
 
     def step(self):
         """
@@ -116,12 +204,13 @@ class MarioExpert:
 
         This is just a very basic example
         """
-
         # Choose an action - button press or other...
         action = self.choose_action()
 
-        # Run the action on the environment
-        self.environment.run_action(action)
+        # If the action is None (e.g., when Mario is dead), don't attempt to run it
+        if action is not None:
+            # Run the action on the environment
+            self.environment.run_action(action)
 
     def play(self):
         """

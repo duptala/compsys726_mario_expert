@@ -22,7 +22,7 @@ class MarioEnvironment(PyboyEnvironment):
     def __init__(
         self,
         act_freq: int = 10,
-        emulation_speed: int = 0,
+        emulation_speed: int = 1,
         headless: bool = False,
     ) -> None:
 
