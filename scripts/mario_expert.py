@@ -174,7 +174,9 @@ class MarioExpert:
         # Find Mario's position
         mario_positions = np.argwhere(game_area == 1)
         if mario_positions.size == 0:
-            return None  # If Mario's position is not found, we skip this step
+            # If mario off screen setting game over to true
+            print("I died!")
+            return {'game_over': True}
 
         mario_min_row = mario_positions[:, 0].min()
         mario_max_row = mario_positions[:, 0].max()
@@ -233,14 +235,15 @@ class MarioExpert:
             'distance_to_goomba_below': distance_to_goomba_below,
             'gap_ahead': gap_ahead,
             'distance_to_gap': distance_to_gap,
+            'game_over': False, # Default to false
         }
         return facts
 
     def choose_action(self):
-        # print(self.environment.get_x_position())
         facts = self.gather_facts()
-        if not facts:
-            return None # no action if facts can't be generated
+        if facts.get('game_over'):
+        # Return a non-disruptive action
+            return WindowEvent.PRESS_BUTTON_A  # or any other action that doesn't interfere
         action = self.inference_engine.evaluate(facts)
         return action
 
