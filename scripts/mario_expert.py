@@ -88,11 +88,12 @@ class KnowledgeBase:
         if facts['gap_ahead'] and facts['distance_to_gap'] is not None:
             if facts['mario_height'] <= 5 and facts['distance_to_gap'] == 4:
                 return WindowEvent.PRESS_BUTTON_A  # Jump over gap from a higher platform
-            elif facts['mario_height'] > 5 and facts['distance_to_gap'] is not None:
-                if (facts['super_gap_ahead'] and facts['distance_to_gap'] is not None and facts['distance_to_gap'] <= 1):
-                    return WindowEvent.PRESS_SUPER_JUMP
-                elif facts['distance_to_gap'] <=1:
-                    return WindowEvent.PRESS_BUTTON_A # jumping at ground level
+            elif facts['mario_height'] > 5:
+                if facts['super_gap_ahead'] and facts['distance_to_gap'] <= 1:
+                    print("SUPER JUMP DETECTED!")
+                    return "PRESS_SUPER_JUMP"  # Use the super jump action
+                elif facts['distance_to_gap'] <= 1:
+                    return WindowEvent.PRESS_BUTTON_A  # Jump at ground level
         return None
 
     def rule_powerup_above(self, facts):
@@ -184,8 +185,11 @@ class MarioController(MarioEnvironment):
             # Implement the super jump logic
             self.pyboy.send_input(WindowEvent.PRESS_ARROW_RIGHT)  # Start moving right
             self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)  # Press jump
-            for _ in range(self.act_freq * 10):  # Increase duration for higher and longer jump
+
+            # Hold jump for a longer duration to simulate a super jump
+            for _ in range(self.act_freq * 15):  # Increase duration for higher and longer jump
                 self.pyboy.tick()
+
             self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A)
             self.pyboy.send_input(WindowEvent.RELEASE_ARROW_RIGHT)
         else:
@@ -219,6 +223,7 @@ class MarioExpert:
     def gather_facts(self):
         game_area = np.array(self.environment.game_area())
         mario_pos = self.environment.get_mario_pose()
+        level = self.environment.get_stage()
         print(mario_pos)
 
         # Find Mario's position
@@ -279,10 +284,10 @@ class MarioExpert:
 
         for col in range(mario_max_col + 1, game_area.shape[1]):
             if game_area[ground_row, col] == 0 and np.all(game_area[mario_max_row + 1:, col] == 0):
+                if np.all(game_area[ground_row, col:col + 3] == 0):  # Check for a super gap
+                    super_gap_ahead = True
                 gap_ahead = True
                 distance_to_gap = col - mario_max_col
-                if distance_to_gap >= 3:  # If the gap is 3 or more tiles wide, consider it a super gap
-                    super_gap_ahead = True
                 break
 
         # Detect power-ups above
@@ -302,8 +307,8 @@ class MarioExpert:
         distance_to_flying_enemy = np.min(flying_enemy_ahead[:, 1] - mario_max_col) if len(flying_enemy_ahead) > 0 else None
 
         print("-----")
-        print("Mario positions:", mario_positions)
-        print(goombas_below)
+        print(self.environment.get_world())
+        print(self.environment.get_stage())
 
         # Collect facts
         facts = {
@@ -327,7 +332,8 @@ class MarioExpert:
             'roof_covered': roof_covered,  # New fact to indicate if the roof is covered
             'number_of_goombas': number_of_goombas,  # New fact to indicate number of goombas
             'flying_enemy_ahead': len(flying_enemy_ahead) > 0,  # Boolean flag for flying enemy
-            'distance_to_flying_enemy': distance_to_flying_enemy,  # Distance to flying enemy
+            'distance_to_flying_enemy': distance_to_flying_enemy,  # Distance to flying enemy,
+            'level': level,
         }
         return facts
 
