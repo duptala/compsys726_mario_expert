@@ -164,8 +164,10 @@ class KnowledgeBaseLevel2:
             else:
                 if facts['distance_to_enemy'] <= 5:
                     return WindowEvent.PRESS_BUTTON_A
-        elif (facts['flying_enemy_ahead'] and facts['distance_to_flying_enemy'] is not None):
-            if facts['distance_to_flying_enemy'] <= 4:
+        elif (facts['bomb_enemy_ahead'] and facts['distance_to_flying_enemy'] is not None):
+            if facts['distance_to_flying_enemy'] > 3:
+                return WindowEvent.PRESS_ARROW_DOWN
+            else: 
                 return WindowEvent.PRESS_BUTTON_A
         return None
 
@@ -188,9 +190,6 @@ class KnowledgeBaseLevel2:
                     return WindowEvent.PRESS_BUTTON_A
                 else:
                     return WindowEvent.PRESS_ARROW_RIGHT
-            # elif facts['floating_platform_below'] and facts['distance_to_floating_platform'] is not None:
-            #     if facts['distance_to_floating_platform'] <= 4:
-            #         return WindowEvent.PRESS_BUTTON_A
         return None
 
     # def rule_gap_ahead(self, facts):
@@ -422,12 +421,19 @@ class MarioExpert:
         # if mario is underneath a roof, needs to jump closer to the goomba
         roof_covered = np.any(game_area[mario_min_row - 2:mario_min_row, mario_min_col:mario_max_col + 1] != 0)
 
-        # Detect flying enemies (number 18)
+        # Detect flying enemies (number 18) and bomb enemy (number 19)
         flying_enemy_positions = np.argwhere(game_area == 18)
+        bomb_enemy_positions = np.argwhere(game_area == 19)
+        
         flying_enemy_ahead = flying_enemy_positions[
             (flying_enemy_positions[:, 1] > mario_max_col)  # In front of Mario
         ]
         distance_to_flying_enemy = np.min(flying_enemy_ahead[:, 1] - mario_max_col) if len(flying_enemy_ahead) > 0 else None
+        
+        bomb_enemy_ahead = bomb_enemy_positions[
+        (bomb_enemy_positions[:, 1] > mario_max_col)  # In front of Mario
+        ]
+        distance_to_bomb_enemy = np.min(bomb_enemy_ahead[:, 1] - mario_max_col) if len(bomb_enemy_ahead) > 0 else None
 
         print("-----")
         print("distnace to gap", distance_to_gap)
@@ -501,7 +507,9 @@ class MarioExpert:
             'platform_ahead': platform_ahead,  # Indicate if there is a floating platform ahead
             'floating_platform_below': floating_platform_below,  # Indicate if there is a floating platform below
             'floating_platform_above': floating_platform_above,  # Indicate if there is a floating platform above
-            'distance_to_floating_platform': distance_to_floating_platform,  # Distance to floating platform ahead
+            'distance_to_floating_platform': distance_to_floating_platform,  # Distance to floating platform ahead,
+            'bomb_enemy_ahead': len(bomb_enemy_ahead) > 0,
+            'distance_to_bomb_enemy': distance_to_bomb_enemy,
         }
         return facts
 
