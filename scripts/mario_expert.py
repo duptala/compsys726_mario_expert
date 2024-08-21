@@ -108,7 +108,9 @@ class KnowledgeBaseLevel1:
 class KnowledgeBaseLevel2:
     def __init__(self):
         self.rules = {
+            'move_right': self.rule_move_right,
             'falling_goomba': self.rule_falling_goomba,
+            'stuck': self.rule_stuck,
             'enemy_ahead': self.rule_enemy_ahead,
             'goomba_below': self.rule_goomba_below,
             'platform_ahead': self.rule_platform_ahead,
@@ -117,6 +119,15 @@ class KnowledgeBaseLevel2:
             'powerup_above': self.rule_powerup_above,
             'path_clear': self.rule_path_clear,
         }
+    
+    def rule_move_right(self, facts):
+        if facts['life'] < 2 and facts['mario_pos'] == 0:
+            return WindowEvent.PRESS_ARROW_RIGHT
+        
+    def rule_stuck(self, facts):
+        if facts['mario_pos'] == 0 and facts['distance_to_floating_platform'] == 1 and facts['floating_platform_above']:
+            return WindowEvent.PRESS_ARROW_LEFT
+        return None
         
     def rule_goomba_below(self, facts):
         goombas_below = facts['goombas_below']
@@ -164,11 +175,14 @@ class KnowledgeBaseLevel2:
             else:
                 if facts['distance_to_enemy'] <= 5:
                     return WindowEvent.PRESS_BUTTON_A
-        elif (facts['bomb_enemy_ahead'] and facts['distance_to_flying_enemy'] is not None):
-            if facts['distance_to_flying_enemy'] > 3:
+        elif (facts['bomb_enemy_ahead'] and facts['distance_to_bomb_enemy'] is not None):
+            print("bomb enemy ahead")
+            if facts['distance_to_bomb_enemy'] <= 10:
                 return WindowEvent.PRESS_ARROW_DOWN
-            else: 
-                return WindowEvent.PRESS_BUTTON_A
+            elif facts['distance_to_bomb_enemy'] <= 7: 
+                return WindowEvent.PRESS_ARROW_RIGHT
+            elif facts['distance_to_bomb_enemy'] <= 5: 
+                return "PRESS_SUPER_JUMP" 
         return None
 
     def rule_barrier_ahead(self, facts):
@@ -181,8 +195,10 @@ class KnowledgeBaseLevel2:
     def rule_platform_ahead(self, facts):
         if facts['platform_ahead'] and facts['distance_to_floating_platform'] is not None:
             if facts['floating_platform_above']:
-                if facts['distance_to_floating_platform'] <= 2:
+                if facts['distance_to_floating_platform'] < 3:
                     return WindowEvent.PRESS_BUTTON_A
+                elif facts['distance_to_floating_platform'] == 1:
+                    return WindowEvent.PRESS_ARROW_LEFT
                 else: 
                     return WindowEvent.PRESS_ARROW_RIGHT
             elif facts['floating_platform_below']:
@@ -346,7 +362,7 @@ class MarioExpert:
         game_area = np.array(self.environment.game_area())
         mario_pos = self.environment.get_mario_pose()
         level = self.environment.get_stage()
-        print(level)
+        print("mario pos", mario_pos)   
 
         # Find Mario's position
         mario_positions = np.argwhere(game_area == 1)
@@ -470,15 +486,7 @@ class MarioExpert:
                         floating_platform_below = False
                         floating_platform_above = False
 
-            # Print statements for debugging
-            print("-----")
-            print("Distance to gap:", distance_to_gap)
-            print("Next tile clear:", next_tile_clear)
-            print("Floating platform ahead:", platform_ahead)
-            print("Distance to floating platform:", distance_to_floating_platform)
-            print("Floating platform below:", floating_platform_below)
-            print("Floating platform above:", floating_platform_above)
-         
+        life = self.environment.get_lives()
             
         # Collect facts
         facts = {
@@ -510,6 +518,7 @@ class MarioExpert:
             'distance_to_floating_platform': distance_to_floating_platform,  # Distance to floating platform ahead,
             'bomb_enemy_ahead': len(bomb_enemy_ahead) > 0,
             'distance_to_bomb_enemy': distance_to_bomb_enemy,
+            'life': life
         }
         return facts
 
