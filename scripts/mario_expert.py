@@ -14,7 +14,7 @@ from mario_environment import MarioEnvironment
 from pyboy.utils import WindowEvent
 import numpy as np
 
-class KnowledgeBase:
+class KnowledgeBaseLevel1:
     def __init__(self):
         self.rules = {
             'falling_goomba': self.rule_falling_goomba,
@@ -90,7 +90,6 @@ class KnowledgeBase:
                 return WindowEvent.PRESS_BUTTON_A  # Jump over gap from a higher platform
             elif facts['mario_height'] > 5:
                 if facts['super_gap_ahead'] and facts['distance_to_gap'] <= 1:
-                    print("SUPER JUMP DETECTED!")
                     return "PRESS_SUPER_JUMP"  # Use the super jump action
                 elif facts['distance_to_gap'] <= 1:
                     return WindowEvent.PRESS_BUTTON_A  # Jump at ground level
@@ -105,14 +104,137 @@ class KnowledgeBase:
         if facts['next_tile_clear']:
             return WindowEvent.PRESS_ARROW_RIGHT  # Move right
         return None
+    
+class KnowledgeBaseLevel2:
+    def __init__(self):
+        self.rules = {
+            'falling_goomba': self.rule_falling_goomba,
+            'enemy_ahead': self.rule_enemy_ahead,
+            'goomba_below': self.rule_goomba_below,
+            'platform_ahead': self.rule_platform_ahead,
+            'barrier_ahead': self.rule_barrier_ahead,
+            # 'gap_ahead': self.rule_gap_ahead,
+            'powerup_above': self.rule_powerup_above,
+            'path_clear': self.rule_path_clear,
+        }
+        
+    def rule_goomba_below(self, facts):
+        goombas_below = facts['goombas_below']
+        distance_to_goomba_below = facts['distance_to_goomba_below']
+        mario_pos = facts['mario_pos']
+        
+        if len(goombas_below) > 0 and mario_pos is not 4:
+            print("Goomba detected below!")
+            if distance_to_goomba_below is not None and distance_to_goomba_below <= 2:
+                print("Jumping over the Goomba!")
+                return WindowEvent.PRESS_BUTTON_A  # Jump over the Goomba
+            else:
+                print("Waiting for the Goomba to get closer.")
+                return WindowEvent.PRESS_ARROW_DOWN  # Stop and wait if Goomba is below
+
+        return None
+
+    def rule_goomba_below_ahead(self, facts):
+        goombas_ahead = facts['goombas_ahead']
+        distance_to_enemy = facts['distance_to_enemy']
+        
+        if goombas_ahead.size > 0 and distance_to_enemy is not None:
+            # If the Goomba is below but still 5 tiles ahead, keep moving right
+            if distance_to_enemy > 0 and distance_to_enemy <= 5:
+                return WindowEvent.PRESS_BUTTON_A  # Jump when close to Goomba
+            else:
+                return WindowEvent.PRESS_ARROW_RIGHT  # Keep moving right until closer
+        return None
+    
+    def rule_falling_goomba(self, facts):
+        if facts['falling_goombas']:
+            return WindowEvent.PRESS_ARROW_DOWN  # Slow down or stop
+        return None
+
+    def rule_enemy_ahead(self, facts):
+        if facts['is_enemy_ahead'] and facts['distance_to_enemy'] is not None:
+            if facts['roof_covered']:
+                if facts['number_of_goombas'] == 2:
+                    if facts['distance_to_enemy'] == 3:
+                        return WindowEvent.PRESS_BUTTON_A
+                elif facts['number_of_goombas'] == 1:
+                    if facts['distance_to_enemy'] == 2:
+                        print("tunnel jumping at 2")
+                        return WindowEvent.PRESS_BUTTON_A
+            else:
+                if facts['distance_to_enemy'] <= 5:
+                    return WindowEvent.PRESS_BUTTON_A
+        elif (facts['flying_enemy_ahead'] and facts['distance_to_flying_enemy'] is not None):
+            if facts['distance_to_flying_enemy'] <= 4:
+                return WindowEvent.PRESS_BUTTON_A
+        return None
+
+    def rule_barrier_ahead(self, facts):
+        if facts['is_barrier_ahead'] and not facts['next_tile_clear']:
+            if facts['mario_pos'] == 0:
+                return WindowEvent.PRESS_ARROW_LEFT
+            return WindowEvent.PRESS_BUTTON_A  # Jump over the barrier
+        return None
+    
+    def rule_platform_ahead(self, facts):
+        if facts['platform_ahead'] and facts['distance_to_floating_platform'] is not None:
+            if facts['floating_platform_above']:
+                if facts['distance_to_floating_platform'] <= 2:
+                    return WindowEvent.PRESS_BUTTON_A
+                else: 
+                    return WindowEvent.PRESS_ARROW_RIGHT
+            elif facts['floating_platform_below']:
+                if facts['distance_to_floating_platform'] > 3:
+                    return WindowEvent.PRESS_BUTTON_A
+                else:
+                    return WindowEvent.PRESS_ARROW_RIGHT
+            # elif facts['floating_platform_below'] and facts['distance_to_floating_platform'] is not None:
+            #     if facts['distance_to_floating_platform'] <= 4:
+            #         return WindowEvent.PRESS_BUTTON_A
+        return None
+
+    # def rule_gap_ahead(self, facts):
+    #     if facts['gap_ahead'] and facts['distance_to_gap'] is not None:
+    #         if facts['mario_height'] <= 5 and facts['distance_to_gap'] == 4:
+    #             return WindowEvent.PRESS_BUTTON_A  # Jump over gap from a higher platform
+    #         elif facts['mario_height'] > 5:
+    #             if facts['super_gap_ahead'] and facts['distance_to_gap'] <= 2:
+    #                 print("SUPER JUMP DETECTED!")
+    #                 return "PRESS_SUPER_JUMP"  # Use the super jump action
+    #             elif facts['distance_to_gap'] <= 1:
+    #                 return WindowEvent.PRESS_BUTTON_A  # Jump at ground level
+    #     return None
+
+    def rule_powerup_above(self, facts):
+        if facts['is_powerup_above']:
+            return WindowEvent.PRESS_BUTTON_A  # Jump to get the power-up
+        return None
+
+    def rule_path_clear(self, facts):
+        if facts['next_tile_clear']:
+            return WindowEvent.PRESS_ARROW_RIGHT  # Move right
+        return None
 
 class InferenceEngine:
-    def __init__(self, knowledge_base):
-        self.knowledge_base = knowledge_base
+    def __init__(self, knowledge_base_level1, knowledge_base_level2):
+        self.knowledge_base_level1 = knowledge_base_level1
+        self.knowledge_base_level2 = knowledge_base_level2
+        self.knowledge_base = None
 
     def evaluate(self, facts):
-        # Apply each rule from the knowledge base
-        for rule_name, rule_function in self.knowledge_base.rules.items():
+        level = facts.get('level')  # Getting the level from the facts
+        
+        if level == 1:
+            knowledge_base = self.knowledge_base_level1
+        elif level == 2:
+            knowledge_base = self.knowledge_base_level2
+        else:
+            # Default to level 1 knowledge base if the level is not specified or recognized
+            knowledge_base = self.knowledge_base_level1
+
+        # Apply each rule from the selected knowledge base
+        for rule_name, rule_function in knowledge_base.rules.items():
+            
             action = rule_function(facts)
             if action:
                 return action  # Return the first valid action and stop further evaluations
@@ -216,15 +338,16 @@ class MarioExpert:
     def __init__(self, results_path: str, headless=False):
         self.results_path = results_path
         self.environment = MarioController(headless=headless)
-        self.knowledge_base = KnowledgeBase()
-        self.inference_engine = InferenceEngine(self.knowledge_base)
+        self.knowledge_base_level1 = KnowledgeBaseLevel1()
+        self.knowledge_base_level2 = KnowledgeBaseLevel2()
+        self.inference_engine = InferenceEngine(self.knowledge_base_level1, self.knowledge_base_level2)
         self.video = None
     
     def gather_facts(self):
         game_area = np.array(self.environment.game_area())
         mario_pos = self.environment.get_mario_pose()
         level = self.environment.get_stage()
-        print(mario_pos)
+        print(level)
 
         # Find Mario's position
         mario_positions = np.argwhere(game_area == 1)
@@ -307,9 +430,50 @@ class MarioExpert:
         distance_to_flying_enemy = np.min(flying_enemy_ahead[:, 1] - mario_max_col) if len(flying_enemy_ahead) > 0 else None
 
         print("-----")
-        print(self.environment.get_world())
-        print(self.environment.get_stage())
+        print("distnace to gap", distance_to_gap)
+        print("next tile clear", next_tile_clear)
+        
+        
+        platform_ahead = False
+        floating_platform_below = False
+        floating_platform_above = False
+        distance_to_floating_platform = None
 
+        # LEVEL 2 SPECIFIC LOGIC - FLOATING PLATFORMS
+        if level == 2:
+            ground_threshold_row = ground_row - 1  # Ground typically exists in the last two rows
+            floating_platforms = np.argwhere(
+                (game_area == 10) & (np.arange(game_area.shape[0])[:, None] < ground_threshold_row)
+            )
+
+            if floating_platforms.size > 0:
+                # Determine the distance to the closest floating platform ahead
+                platforms_ahead = floating_platforms[floating_platforms[:, 1] > mario_max_col]
+                if platforms_ahead.size > 0:
+                    closest_platform_ahead = platforms_ahead[np.argmin(platforms_ahead[:, 1] - mario_max_col)]
+                    distance_to_floating_platform = closest_platform_ahead[1] - mario_max_col
+                    platform_ahead = True
+
+                    # Determine if the closest platform is above or below Mario
+                    if closest_platform_ahead[0] > mario_max_row:
+                        floating_platform_below = True
+                    elif closest_platform_ahead[0] < mario_min_row:
+                        floating_platform_above = True
+                    else:
+                        # Same height as Mario
+                        floating_platform_below = False
+                        floating_platform_above = False
+
+            # Print statements for debugging
+            print("-----")
+            print("Distance to gap:", distance_to_gap)
+            print("Next tile clear:", next_tile_clear)
+            print("Floating platform ahead:", platform_ahead)
+            print("Distance to floating platform:", distance_to_floating_platform)
+            print("Floating platform below:", floating_platform_below)
+            print("Floating platform above:", floating_platform_above)
+         
+            
         # Collect facts
         facts = {
             'mario_positions': mario_positions,
@@ -334,6 +498,10 @@ class MarioExpert:
             'flying_enemy_ahead': len(flying_enemy_ahead) > 0,  # Boolean flag for flying enemy
             'distance_to_flying_enemy': distance_to_flying_enemy,  # Distance to flying enemy,
             'level': level,
+            'platform_ahead': platform_ahead,  # Indicate if there is a floating platform ahead
+            'floating_platform_below': floating_platform_below,  # Indicate if there is a floating platform below
+            'floating_platform_above': floating_platform_above,  # Indicate if there is a floating platform above
+            'distance_to_floating_platform': distance_to_floating_platform,  # Distance to floating platform ahead
         }
         return facts
 
